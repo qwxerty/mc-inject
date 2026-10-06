@@ -12,11 +12,16 @@ import java.util.jar.JarOutputStream;
 
 public class Agent {
     public static void agentmain(String args, Instrumentation inst) {
-        if (System.getProperty("client.loaded") != null) return;
-        System.setProperty("client.loaded", "1");
+        System.err.println("[mc-inject] Agent.agentmain ENTER args=" + args);
         try {
+            if (System.getProperty("client.loaded") != null) {
+                System.err.println("[mc-inject] already loaded; abort");
+                return;
+            }
+            System.setProperty("client.loaded", "1");
             File tmp = File.createTempFile("client-bootstrap-hooks", ".jar");
             tmp.deleteOnExit();
+            System.err.println("[mc-inject] bootstrap jar=" + tmp.getAbsolutePath());
             try (InputStream in = Agent.class.getResourceAsStream("/client/BootstrapHooks.class");
                  JarOutputStream out = new JarOutputStream(new FileOutputStream(tmp))) {
                 if (in == null) throw new IllegalStateException("BootstrapHooks.class missing from payload");
@@ -26,33 +31,55 @@ public class Agent {
                 out.closeEntry();
             }
             inst.appendToBootstrapClassLoaderSearch(new JarFile(tmp));
+            System.err.println("[mc-inject] BootstrapHooks appended to bootstrap search");
 
+            ClassLoader mcLoader = findMcLoader(inst);
+            System.err.println("[mc-inject] detected MC loader=" + mcLoader + " class=" + (mcLoader == null ? "null" : mcLoader.getClass().getName()));
             File self = new File(Agent.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-            final ClassLoader loader = new ChildLoader(new URL[]{self.toURI().toURL()}, findMcLoader(inst));
+            final ClassLoader loader = new ChildLoader(new URL[]{self.toURI().toURL()}, mcLoader);
             final String profile = args == null ? "forge-1.8.9" : args;
+            System.err.println("[mc-inject] child loader=" + loader + " payload=" + self.getAbsolutePath() + " profile=" + profile);
             new Thread(() -> {
                 try {
                     Thread.currentThread().setContextClassLoader(loader);
                     Class<?> c = Class.forName("client.Client", true, loader);
+                    System.err.println("[mc-inject] client.Client loaded by=" + c.getClassLoader());
                     c.getMethod("init", String.class, Instrumentation.class).invoke(null, profile, inst);
-                } catch (Throwable t) { t.printStackTrace(); }
+                    System.err.println("[mc-inject] Client.init returned");
+                } catch (Throwable t) {
+                    System.err.println("[mc-inject] client-init FAILED");
+                    t.printStackTrace();
+                }
             }, "client-init").start();
-        } catch (Throwable t) { t.printStackTrace(); }
+        } catch (Throwable t) {
+            System.err.println("[mc-inject] agentmain FAILED");
+            t.printStackTrace();
+        }
     }
 
     private static ClassLoader findMcLoader(Instrumentation inst) {
+        System.err.println("[mc-inject] scanning loaded classes for Launch.classLoader");
         for (Class<?> c : inst.getAllLoadedClasses()) {
             if (c.getName().equals("net.minecraft.launchwrapper.Launch")) {
                 try {
                     Object o = c.getField("classLoader").get(null);
-                    if (o instanceof ClassLoader) return (ClassLoader) o;
-                } catch (Throwable ignored) {}
+                    if (o instanceof ClassLoader) {
+                        System.err.println("[mc-inject] Launch.classLoader found: " + o);
+                        return (ClassLoader) o;
+                    }
+                } catch (Throwable t) {
+                    System.err.println("[mc-inject] Launch.classLoader lookup failed: " + t);
+                }
             }
         }
+        System.err.println("[mc-inject] scanning Minecraft classloader fallback");
         for (Class<?> c : inst.getAllLoadedClasses()) {
-            if (c.getName().equals("net.minecraft.client.Minecraft") && c.getClassLoader() != null)
+            if (c.getName().equals("net.minecraft.client.Minecraft") && c.getClassLoader() != null) {
+                System.err.println("[mc-inject] Minecraft loader found: " + c.getClassLoader());
                 return c.getClassLoader();
+            }
         }
+        System.err.println("[mc-inject] using system classloader fallback");
         return ClassLoader.getSystemClassLoader();
     }
 
