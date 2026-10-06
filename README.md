@@ -24,5 +24,7 @@ Wyniki:
 ## Rozbudowa
 - nowy modul: klasa w client/module/impl + register(...) w ModuleManager
 - nowe pole/metoda MC: wpis w .properties + wrapper w Mc.java
-- nowy hook: wpis w HookManager.HOOKS + metoda w Hooks + dispatch do modulow
+- nowy hook: wpis w HookManager.HOOKS + metoda w BootstrapHooks + dispatch do modulow
+- BootstrapHooks jest celowo JDK-only i ma osobna nazwe, zeby unikac konfliktu ze starym `client.Hooks` w LaunchWrapper
+- Reach aktualizuje target bezposrednio przed `clickMouse()` i zachowuje vanilla target przy normalnym zasiegu
 - inna wersja MC: nowy plik w resources/mappings, nazwa profilu jako 3. argument
