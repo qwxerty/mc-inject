@@ -1,5 +1,6 @@
 package client.mc;
 
+import client.DebugLog;
 import java.lang.instrument.Instrumentation;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -12,7 +13,10 @@ public class Reflect {
     private static final Map<String, Field> fields = new HashMap<>();
     private static final Map<String, Method> methods = new HashMap<>();
 
-    public static void init(Instrumentation i) { inst = i; }
+    public static void init(Instrumentation i) {
+        inst = i;
+        DebugLog.info("Reflect.init instrumentation=" + i + " loadedClasses=" + (i == null ? -1 : i.getAllLoadedClasses().length));
+    }
 
     /** Szuka klasy wsrod wszystkich zaladowanych klas - niezaleznie od classloadera. */
     public static synchronized Class<?> cls(String key) {
@@ -20,8 +24,13 @@ public class Reflect {
         if (c != null) return c;
         String name = Mappings.cls(key);
         for (Class<?> k : inst.getAllLoadedClasses()) {
-            if (k.getName().equals(name)) { classes.put(key, k); return k; }
+            if (k.getName().equals(name)) {
+                classes.put(key, k);
+                DebugLog.info("Reflect.cls " + key + " -> " + name + " loader=" + k.getClassLoader());
+                return k;
+            }
         }
+        DebugLog.warn("Reflect.cls MISS " + key + " -> " + name);
         throw new IllegalStateException("Klasa niezaladowana: " + name);
     }
 
@@ -35,9 +44,11 @@ public class Reflect {
                 f = k.getDeclaredField(n);
                 f.setAccessible(true);
                 fields.put(id, f);
+                DebugLog.info("Reflect.field " + owner + "." + key + " -> " + n);
                 return f;
             } catch (NoSuchFieldException ignored) {}
         }
+        DebugLog.warn("Reflect.field MISS " + owner + "." + key + " -> " + n);
         throw new IllegalStateException("Brak pola: " + owner + "." + n);
     }
 
@@ -51,21 +62,27 @@ public class Reflect {
                 if (x.getName().equals(n) && x.getParameterTypes().length == argc) {
                     x.setAccessible(true);
                     methods.put(id, x);
+                    DebugLog.info("Reflect.method " + owner + "." + key + "/" + argc + " -> " + n + " declaredIn=" + k.getName());
                     return x;
                 }
             }
         }
+        DebugLog.warn("Reflect.method MISS " + owner + "." + key + "/" + argc + " -> " + n);
         throw new IllegalStateException("Brak metody: " + owner + "." + n);
     }
 
     public static Object get(String owner, String key, Object inst) {
-        try { return field(owner, key).get(inst); } catch (Exception e) { throw new RuntimeException(e); }
+        try { return field(owner, key).get(inst); }
+        catch (Exception e) { DebugLog.error("Reflect.get FAILED " + owner + "." + key, e); throw new RuntimeException(e); }
     }
+
     public static void set(String owner, String key, Object inst, Object val) {
-        try { field(owner, key).set(inst, val); } catch (Exception e) { throw new RuntimeException(e); }
+        try { field(owner, key).set(inst, val); }
+        catch (Exception e) { DebugLog.error("Reflect.set FAILED " + owner + "." + key, e); throw new RuntimeException(e); }
     }
+
     public static Object call(String owner, String key, Object inst, Object... args) {
         try { return method(owner, key, args.length).invoke(inst, args); }
-        catch (Exception e) { throw new RuntimeException(e); }
+        catch (Exception e) { DebugLog.error("Reflect.call FAILED " + owner + "." + key + "/" + args.length, e); throw new RuntimeException(e); }
     }
 }
