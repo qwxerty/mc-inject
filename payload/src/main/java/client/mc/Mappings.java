@@ -1,5 +1,6 @@
 package client.mc;
 
+import client.DebugLog;
 import java.io.InputStream;
 import java.util.Properties;
 
@@ -7,10 +8,14 @@ public class Mappings {
     private static final Properties p = new Properties();
 
     public static void load(String profile) throws Exception {
-        try (InputStream in = Mappings.class.getResourceAsStream("/mappings/" + profile + ".properties")) {
+        String resource = "/mappings/" + profile + ".properties";
+        DebugLog.info("Mappings.load " + resource);
+        try (InputStream in = Mappings.class.getResourceAsStream(resource)) {
             if (in == null) throw new IllegalArgumentException("Brak profilu mappingow: " + profile);
+            p.clear();
             p.load(in);
         }
+        DebugLog.info("Mappings loaded entries=" + p.size());
     }
 
     public static String cls(String key) {
