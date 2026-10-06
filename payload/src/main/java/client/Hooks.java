@@ -13,12 +13,13 @@ import java.util.function.Consumer;
 public final class Hooks {
     private Hooks() {}
 
-    public static volatile Consumer<Object> tick, playerUpdate, render;
+    public static volatile Consumer<Object> tick, playerUpdate, render, clickMouse;
     private static int errors;
 
-    public static void onTick(Object mc)       { run(tick, mc); }
-    public static void onPlayerUpdate(Object p){ run(playerUpdate, p); }
-    public static void onRender(Object r)      { run(render, r); }
+    public static void onTick(Object mc)        { run(tick, mc); }
+    public static void onPlayerUpdate(Object p) { run(playerUpdate, p); }
+    public static void onRender(Object r)       { run(render, r); }
+    public static void onClickMouse(Object mc)  { run(clickMouse, mc); }
 
     private static void run(Consumer<Object> c, Object arg) {
         if (c == null) return;
@@ -31,6 +32,6 @@ public final class Hooks {
         if (reach != null && reach.isEnabled()) {
             return reach.getReach();
         }
-        return 3.0D; // Wartość domyślna Minecrafta
+        return 3.0D;
     }
 }
