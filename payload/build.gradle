@@ -1,0 +1,32 @@
+plugins {
+    id 'java'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+
+repositories { mavenCentral() }
+
+dependencies {
+    implementation 'org.ow2.asm:asm:9.6'
+    compileOnly 'org.lwjgl.lwjgl:lwjgl:2.9.3'   // w grze jest juz na classpath
+}
+
+// gra na 1.8.9 = Java 8 (dla MC 1.17+ zmien na 17)
+tasks.withType(JavaCompile) { options.release = 8 }
+
+// zwykly jar nie moze kolidowac nazwa z shadowJar (to byl blad: brak Agent-Class)
+jar { archiveClassifier = 'plain' }
+
+shadowJar {
+    archiveFileName = 'payload.jar'
+    archiveClassifier = ''
+    // relokacja ASM, zeby nie kolidowal z ASM-em Forge'a
+    relocate 'org.objectweb.asm', 'client.libs.asm'
+    manifest {
+        attributes(
+            'Agent-Class': 'client.Agent',
+            'Can-Retransform-Classes': 'true',
+            'Can-Redefine-Classes': 'true'
+        )
+    }
+}
+build.dependsOn shadowJar
