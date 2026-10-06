@@ -1,5 +1,6 @@
 package client.module.impl;
 
+import client.DebugLog;
 import client.mc.Reflect;
 import client.module.Module;
 import client.module.Setting;
@@ -15,51 +16,93 @@ public class Reach extends Module {
     private final Setting.Bool randomize = add(new Setting.Bool("Randomize", true));
     private final Setting.Bool onlyWeapon = add(new Setting.Bool("Only Weapon", false));
     private final Random rnd = new Random();
+    private long calls;
 
     public Reach() { super("Reach", Category.COMBAT, "Extends client-side entity targeting"); }
 
     /** Runs immediately before Minecraft.clickMouse(). */
     public void updateTarget(Object mc) {
+        long call = ++calls;
+        boolean verbose = call == 1 || call % 20 == 0;
+        if (verbose) DebugLog.info("Reach.updateTarget #" + call + " mc=" + (mc == null ? "null" : mc.getClass().getName()));
+
         try {
-            if (mc == null) return;
+            if (mc == null) {
+                if (verbose) DebugLog.warn("Reach: mc is null");
+                return;
+            }
+
             Object player = Reflect.get("Minecraft", "thePlayer", mc);
             Object world = Reflect.get("Minecraft", "theWorld", mc);
-            if (player == null || world == null || (onlyWeapon.value && !isHoldingWeapon(player))) return;
+            if (verbose) DebugLog.info("Reach: player=" + player + " world=" + world + " onlyWeapon=" + onlyWeapon.value);
 
-            // Keep vanilla targeting authoritative at normal reach.
+            if (player == null || world == null) {
+                if (verbose) DebugLog.warn("Reach: player/world missing");
+                return;
+            }
+
+            if (onlyWeapon.value && !isHoldingWeapon(player)) {
+                if (verbose) DebugLog.info("Reach: skipped because held item is not a weapon");
+                return;
+            }
+
             Object current = Reflect.get("Minecraft", "objectMouseOver", mc);
-            if (isEntityHit(current)) return;
+            if (isEntityHit(current)) {
+                if (verbose) DebugLog.info("Reach: vanilla objectMouseOver already ENTITY; preserving it");
+                return;
+            }
 
             double reach = getReach();
             List<?> entities = (List<?>) Reflect.get("World", "loadedEntityList", world);
-            if (entities == null || entities.isEmpty()) return;
+            if (entities == null || entities.isEmpty()) {
+                if (verbose) DebugLog.info("Reach: loadedEntityList empty/null");
+                return;
+            }
 
             Object best = null;
             double bestAngle = maxAngle.value + 1.0;
             double bestDistance = Double.MAX_VALUE;
+            int living = 0, inRange = 0, inFov = 0;
+
             for (Object entity : entities) {
                 if (entity == null || entity == player || !Reflect.cls("EntityLivingBase").isInstance(entity)) continue;
+                living++;
                 double distance = ((Number) Reflect.call("Entity", "getDistanceToEntity", player, entity)).doubleValue();
                 if (distance > reach) continue;
+                inRange++;
                 double angle = getFov(player, entity);
                 if (angle > maxAngle.value) continue;
+                inFov++;
                 if (angle < bestAngle - 1.0E-6 || (Math.abs(angle - bestAngle) < 1.0E-6 && distance < bestDistance)) {
-                    best = entity; bestAngle = angle; bestDistance = distance;
+                    best = entity;
+                    bestAngle = angle;
+                    bestDistance = distance;
                 }
             }
+
+            if (verbose) DebugLog.info("Reach scan: entities=" + entities.size() + " living=" + living + " inRange=" + inRange + " inFov=" + inFov +
+                    " reach=" + reach + " maxAngle=" + maxAngle.value + " best=" + best + " bestDistance=" + bestDistance + " bestAngle=" + bestAngle);
+
             if (best != null) {
                 Object mop = movingObjectPosition(best);
-                if (mop != null) Reflect.set("Minecraft", "objectMouseOver", mc, mop);
+                if (mop != null) {
+                    Reflect.set("Minecraft", "objectMouseOver", mc, mop);
+                    if (verbose) DebugLog.info("Reach: objectMouseOver SET to " + best.getClass().getName() + " distance=" + bestDistance + " angle=" + bestAngle);
+                } else {
+                    DebugLog.warn("Reach: MovingObjectPosition construction returned null");
+                }
             }
-        } catch (Throwable ignored) {
-            // A mapping/API mismatch must never crash Minecraft's input path.
+        } catch (Throwable t) {
+            DebugLog.error("Reach.updateTarget FAILED #" + call, t);
         }
     }
 
     private Object movingObjectPosition(Object entity) throws Exception {
         Class<?> mop = Reflect.cls("MovingObjectPosition");
+        DebugLog.info("Reach: constructing MovingObjectPosition class=" + mop + " entity=" + entity.getClass());
         for (Constructor<?> c : mop.getDeclaredConstructors()) {
             Class<?>[] p = c.getParameterTypes();
+            DebugLog.info("Reach: MOP constructor=" + c);
             if (p.length == 1 && p[0].isAssignableFrom(entity.getClass())) {
                 c.setAccessible(true); return c.newInstance(entity);
             }
@@ -75,11 +118,13 @@ public class Reach extends Module {
             if (mop == null) return false;
             Object type = Reflect.get("MovingObjectPosition", "typeOfHit", mop);
             return type != null && "ENTITY".equals(type.toString());
-        } catch (Throwable ignored) { return false; }
+        } catch (Throwable t) {
+            DebugLog.error("Reach.isEntityHit FAILED", t);
+            return false;
+        }
     }
 
     private double getFov(Object player, Object entity) throws Exception {
-        // Prefer the real look vector; yaw-only fallback keeps alternate mappings usable.
         try {
             Object look = Reflect.call("Entity", "getLook", player, 1.0F);
             double lx = ((Number) Reflect.get("Vec3", "xCoord", look)).doubleValue();
@@ -97,7 +142,10 @@ public class Reach extends Module {
                 double dot = (dx * lx + dy * ly + dz * lz) / (len * lookLen);
                 return Math.toDegrees(Math.acos(Math.max(-1.0, Math.min(1.0, dot))));
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) {
+            // Fall through to yaw-only calculation, but keep the actual cause in the log.
+            DebugLog.error("Reach.getFov look-vector path FAILED; using yaw fallback", t);
+        }
 
         double px = ((Number) Reflect.get("Entity", "posX", player)).doubleValue();
         double pz = ((Number) Reflect.get("Entity", "posZ", player)).doubleValue();
@@ -115,7 +163,10 @@ public class Reach extends Module {
             if (stack == null) return false;
             Object item = Reflect.call("ItemStack", "getItem", stack);
             return item != null && (Reflect.cls("ItemSword").isInstance(item) || Reflect.cls("ItemAxe").isInstance(item));
-        } catch (Throwable ignored) { return false; }
+        } catch (Throwable t) {
+            DebugLog.error("Reach.isHoldingWeapon FAILED", t);
+            return false;
+        }
     }
 
     public double getReach() {
