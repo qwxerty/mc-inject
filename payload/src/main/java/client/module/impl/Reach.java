@@ -8,10 +8,10 @@ import java.util.List;
 import java.util.Random;
 
 public class Reach extends Module {
-    private final Setting.Num  reachMin   = add(new Setting.Num("Reach Min",   3.1, 3.0, 5.0, 0.05));
-    private final Setting.Num  reachMax   = add(new Setting.Num("Reach Max",   3.4, 3.0, 5.0, 0.05));
-    private final Setting.Num  maxAngle   = add(new Setting.Num("FOV Angle",   30,  5, 180, 5));
-    private final Setting.Bool randomize  = add(new Setting.Bool("Randomize",  true));
+    private final Setting.Num reachMin   = add(new Setting.Num("Reach Min", 3.1, 3.0, 5.0, 0.05));
+    private final Setting.Num reachMax   = add(new Setting.Num("Reach Max", 3.4, 3.0, 5.0, 0.05));
+    private final Setting.Num maxAngle   = add(new Setting.Num("FOV Angle", 30, 5, 180, 5));
+    private final Setting.Bool randomize = add(new Setting.Bool("Randomize", true));
     private final Setting.Bool onlyWeapon = add(new Setting.Bool("Only Weapon", false));
 
     private final Random rnd = new Random();
@@ -20,60 +20,76 @@ public class Reach extends Module {
         super("Reach", Category.COMBAT, "Extends attack reach without ASM");
     }
 
-    @Override
-    public void onRender() {
+    /**
+     * Called immediately before Minecraft.clickMouse() executes.
+     *
+     * The old implementation ran from EntityRenderer at the end of a frame.
+     * That was too late: runTick/clickMouse can overwrite objectMouseOver
+     * before the player attack is processed. This is why the module could look
+     * "working" while extended attacks on some entities never happened.
+     */
+    public void updateTarget(Object mc) {
         try {
-            // 1. Pobieramy instancje z gry
-            Object mc = Reflect.call("Minecraft", "getMinecraft", null);
             if (mc == null) return;
+
             Object player = Reflect.get("Minecraft", "thePlayer", mc);
             Object world = Reflect.get("Minecraft", "theWorld", mc);
             if (player == null || world == null) return;
 
             if (onlyWeapon.value && !isHoldingWeapon(player)) return;
 
-            // 2. Jeśli gra sama już namierzyła kogoś w zasięgu 3.0, nie psujemy tego
+            // Preserve vanilla targeting whenever Minecraft already found an entity.
             Object mop = Reflect.get("Minecraft", "objectMouseOver", mc);
-            if (mop != null) {
-                Object typeOfHit = Reflect.get("MovingObjectPosition", "typeOfHit", mop);
-                if (typeOfHit != null && typeOfHit.toString().equals("ENTITY")) return;
-            }
+            if (isEntityHit(mop)) return;
 
-            // 3. Szukamy nowego celu w przedłużonym zasięgu
             double currentReach = getReach();
             List<?> entities = (List<?>) Reflect.get("World", "loadedEntityList", world);
+            if (entities == null) return;
 
             Object bestTarget = null;
             double bestFov = maxAngle.value;
+            double bestDistance = Double.MAX_VALUE;
 
             for (Object entity : entities) {
                 if (entity == player) continue;
-
-                // Sprawdzamy czy to gracz lub mob
                 if (!Reflect.cls("EntityLivingBase").isInstance(entity)) continue;
 
-                // Odległość od gracza
-                float dist = (float) Reflect.call("Entity", "getDistanceToEntity", player, entity);
-                if (dist > currentReach) continue;
+                float distance = (float) Reflect.call(
+                        "Entity", "getDistanceToEntity", player, entity
+                );
+                if (distance > currentReach) continue;
 
-                // Kąt (FOV) - sprawdzamy czy celownik jest w pobliżu encji
                 double fov = getFov(player, entity);
-                if (fov < bestFov) {
+                if (fov > maxAngle.value) continue;
+
+                // Prefer the target closest to the crosshair; use distance as
+                // a stable tie-breaker for mobs standing at the same angle.
+                if (fov < bestFov || (Math.abs(fov - bestFov) < 1.0E-6 && distance < bestDistance)) {
                     bestFov = fov;
+                    bestDistance = distance;
                     bestTarget = entity;
                 }
             }
 
-            // 4. Jeśli znaleźliśmy cel, PODMIENIAMY celownik gry
             if (bestTarget != null) {
                 Class<?> mopClass = Reflect.cls("MovingObjectPosition");
-                // Tworzymy MovingObjectPosition(Entity) i ustawiamy w Minecrafcie
-                Object newMop = mopClass.getConstructor(Reflect.cls("Entity")).newInstance(bestTarget);
+                Object newMop = mopClass
+                        .getConstructor(Reflect.cls("Entity"))
+                        .newInstance(bestTarget);
                 Reflect.set("Minecraft", "objectMouseOver", mc, newMop);
             }
+        } catch (Throwable t) {
+            // Do not break Minecraft's input path if mappings differ.
+        }
+    }
 
-        } catch (Exception ignored) {
-            // Ignorujemy błędy, by nie zaspamować konsoli w razie chwilowego braku obiektu
+    private boolean isEntityHit(Object mop) {
+        try {
+            if (mop == null) return false;
+            Object typeOfHit = Reflect.get("MovingObjectPosition", "typeOfHit", mop);
+            return typeOfHit != null && "ENTITY".equals(typeOfHit.toString());
+        } catch (Throwable ignored) {
+            return false;
         }
     }
 
@@ -87,7 +103,6 @@ public class Reach extends Module {
 
         double yawToEntity = Math.toDegrees(Math.atan2(ez - pz, ex - px)) - 90.0;
 
-        // Normalizacja kątów
         double diff = Math.abs(pYaw - yawToEntity) % 360.0;
         if (diff > 180.0) diff = 360.0 - diff;
         return diff;
@@ -98,8 +113,9 @@ public class Reach extends Module {
             Object itemStack = Reflect.call("EntityLivingBase", "getHeldItem", player);
             if (itemStack == null) return false;
             Object item = Reflect.call("ItemStack", "getItem", itemStack);
-            return Reflect.cls("ItemSword").isInstance(item) || Reflect.cls("ItemAxe").isInstance(item);
-        } catch (Exception e) {
+            return Reflect.cls("ItemSword").isInstance(item)
+                    || Reflect.cls("ItemAxe").isInstance(item);
+        } catch (Throwable e) {
             return false;
         }
     }
@@ -108,6 +124,7 @@ public class Reach extends Module {
         double min = Math.min(reachMin.value, reachMax.value);
         double max = Math.max(reachMin.value, reachMax.value);
         if (!randomize.value) return max;
+
         double r = min + (rnd.nextGaussian() * 0.5 + 0.5) * (max - min);
         return Math.max(min, Math.min(max, r));
     }
