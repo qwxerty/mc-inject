@@ -16,10 +16,10 @@ public final class ClickGui {
     private ClickGui() {}
 
     // ---- uklad ----
-    private static final float W = 620, H = 400, HEAD = 56, SIDE = 150, PAD = 14, ROW = 48, SROW = 34;
+    private static final float W = 580, H = 372, HEAD = 52, SIDE = 128, PAD = 12, ROW = 46, SROW = 32;
 
     // ---- paleta ----
-    private static final int ACCENT = 0xFF7C5CFF, ACCENT2 = 0xFF4FA3FF;
+    private static final int ACCENT = 0xFF7C8CFF, ACCENT2 = 0xFF55D6FF;
     private static final int BG_T = 0xF2191923, BG_B = 0xF20F0F16;
     private static final int CARD_T = 0xFF232331, CARD_B = 0xFF1E1E2A, CARD_HT = 0xFF2C2C3E, CARD_HB = 0xFF262636;
     private static final int TEXT = 0xFFEDEDF6, MUTED = 0xFF8C8CA3, OFF1 = 0xFF3B3B50, OFF2 = 0xFF34344A;
@@ -48,12 +48,14 @@ public final class ClickGui {
         dt = lastNs == 0 ? 0.016f : Math.min(0.1f, (now - lastNs) / 1e9f);
         lastNs = now;
 
+        boolean esc = Keyboard.isKeyDown(Keyboard.KEY_ESCAPE);
         boolean ins = Keyboard.isKeyDown(Keyboard.KEY_INSERT);
         boolean insPressed = ins && !lastIns;
         lastIns = ins;
 
         Object cur = Mc.currentScreen();
         boolean open = ScreenHost.isOurs(cur);
+        if (open && esc) { Mc.displayScreen(null); return; }
         if (insPressed) {
             if (open) { Mc.displayScreen(null); return; }
             if (cur == null && Mc.player() != null) { Mc.displayScreen(ScreenHost.create()); return; }
@@ -114,7 +116,7 @@ public final class ClickGui {
         GL11.glTranslatef(-cx, -cy, 0);
 
         // ---- okno ----
-        Gfx.shadow(wx, wy, W, H, 14, 22, 0.8f);
+        Gfx.shadow(wx, wy, W, H, 14, 10, 0.55f);
         Gfx.roundRect(wx - 1, wy - 1, W + 2, H + 2, 15, 0x45FFFFFF, 0x10FFFFFF);
         Gfx.roundRect(wx, wy, W, H, 14, BG_T, BG_B);
 
@@ -122,7 +124,7 @@ public final class ClickGui {
         Gfx.roundRect(wx + 18, wy + 16, 24, 24, 7, ACCENT, ACCENT2);
         Fonts.midCenter("C", wx + 30, wy + 28, 15, true, 0xFFFFFFFF);
         Fonts.draw("CLIENT", wx + 52, wy + 11, 15, true, TEXT);
-        Fonts.draw("1.8.9  |  INSERT to close", wx + 52, wy + 31, 10, false, MUTED);
+        Fonts.draw("1.8.9  ·  INSERT / ESC", wx + 52, wy + 31, 10, false, MUTED);
         int enabled = 0;
         for (Module m : ModuleManager.all()) if (m.isEnabled()) enabled++;
         Fonts.midRight(enabled + " / " + ModuleManager.all().size() + " enabled", wx + W - 20, wy + 28, 11, false, MUTED);
