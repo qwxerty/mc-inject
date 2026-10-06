@@ -4,6 +4,7 @@ import client.hook.HookManager;
 import client.mc.Mappings;
 import client.mc.Reflect;
 import client.module.ModuleManager;
+import client.module.impl.Reach;
 import client.ui.ClickGui;
 
 import java.lang.instrument.Instrumentation;
@@ -21,6 +22,12 @@ public class Client {
 
             Hooks.tick         = o -> { if (active) ModuleManager.onTick(); };
             Hooks.playerUpdate = o -> { if (active) ModuleManager.onPlayerUpdate(o); };
+            Hooks.clickMouse   = o -> {
+                if (active) {
+                    Reach reach = ModuleManager.getModule(Reach.class);
+                    if (reach != null && reach.isEnabled()) reach.updateTarget(o);
+                }
+            };
             Hooks.render       = o -> { if (active) { ModuleManager.onRender(); ClickGui.render(); } };
 
             HookManager.install(inst);
@@ -44,6 +51,7 @@ public class Client {
         Hooks.tick = null;
         Hooks.playerUpdate = null;
         Hooks.render = null;
+        Hooks.clickMouse = null;
         System.out.println("[client] eject");
     }
 }
