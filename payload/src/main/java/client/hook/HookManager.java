@@ -20,10 +20,10 @@ public class HookManager {
         }
     }
 
-    // >>> TU DODAJESZ KOLEJNE HOOKI <<<
     static final List<Hook> HOOKS = Arrays.asList(
-        new Hook("Minecraft",      "runTick",  "()V", "onTick"),
-        new Hook("EntityPlayerSP", "onUpdate", "()V", "onPlayerUpdate"),
+        new Hook("Minecraft",      "runTick",  "()V",   "onTick"),
+        new Hook("Minecraft",      "clickMouse","()V",  "onClickMouse"),
+        new Hook("EntityPlayerSP", "onUpdate", "()V",   "onPlayerUpdate"),
         // koniec renderu klatki: tu rysujemy GUI (po HUD-zie i ekranach MC)
         new Hook("EntityRenderer", "updateCameraAndRender", "(FJ)V", "onRender", true)
     );
